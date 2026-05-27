@@ -884,6 +884,10 @@
             transform: translateY(-12px) scale(0.98);
             pointer-events: none;
             transition: opacity 0.24s ease, transform 0.24s ease;
+            max-height: calc(100% - env(safe-area-inset-top, 0px) - 200px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 26px;
         }
 
         .route-planner-panel.is-open {
@@ -4664,10 +4668,10 @@
             }
 
             .app-container {
-                width: 430px;
+                width: 390px;
                 flex: none;
-                height: 932px;
-                max-height: 95vh;
+                height: 780px;
+                max-height: 90vh;
                 border-radius: 40px;
                 overflow: hidden;
                 box-shadow:

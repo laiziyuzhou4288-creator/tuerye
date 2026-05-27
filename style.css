@@ -883,6 +883,10 @@ html, body {
     transform: translateY(-12px) scale(0.98);
     pointer-events: none;
     transition: opacity 0.24s ease, transform 0.24s ease;
+    max-height: calc(100% - env(safe-area-inset-top, 0px) - 200px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 26px;
 }
 
 .route-planner-panel.is-open {
@@ -4667,10 +4671,10 @@ html, body {
     }
 
     .app-container {
-        width: 430px;          /* ✅ 固定手机宽度 */
-        flex: none;            /* ✅ 禁止拉伸 */
-        height: 932px;
-        max-height: 95vh;
+        width: 390px;
+        flex: none;
+        height: 780px;
+        max-height: 90vh;
         border-radius: 40px;
         overflow: hidden;
         box-shadow:
