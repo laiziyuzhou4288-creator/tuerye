@@ -1031,7 +1031,7 @@ html, body {
     flex-direction: column;
     align-items: center;
     height: 100%;
-    padding: calc(0px + 76px) 22px 110px;
+    padding: calc(0px + 40px) 22px 110px;
 }
 
 .sense-header {
@@ -1170,7 +1170,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 20px 32px;
+    padding: calc(0px + 40px) 20px 32px;
 }
 
 .visual-header {
@@ -1539,7 +1539,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 20px 32px;
+    padding: calc(0px + 40px) 20px 32px;
 }
 
 .hear-header {
@@ -1966,7 +1966,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 20px 32px;
+    padding: calc(0px + 40px) 20px 32px;
 }
 
 .touch-header {
@@ -2699,7 +2699,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 18px 32px;
+    padding: calc(0px + 40px) 18px 32px;
 }
 
 .memory-header {
@@ -3107,7 +3107,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 18px 32px;
+    padding: calc(0px + 40px) 18px 32px;
 }
 
 .note-header {
@@ -3519,7 +3519,7 @@ html, body {
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: calc(0px + 76px) 18px 26px;
+    padding: calc(0px + 40px) 18px 26px;
     gap: 12px;
 }
 
@@ -4115,7 +4115,7 @@ html, body {
     }
 
     .sense-content {
-        padding-top: calc(0px + 60px);
+        padding-top: calc(0px + 32px);
     }
 
     .archive-stamp {
@@ -4257,7 +4257,7 @@ html, body {
     }
 
     .memory-content {
-        padding-top: calc(0px + 80px);
+        padding-top: calc(0px + 42px);
     }
     .memory-grid {
         gap: 10px;
@@ -4293,7 +4293,7 @@ html, body {
     }
 
     .archive-content {
-        padding-top: calc(0px + 98px);
+        padding-top: calc(0px + 52px);
     }
 
     .archive-hero {
@@ -4301,7 +4301,7 @@ html, body {
     }
 
     .sense-content {
-        padding-top: calc(0px + 48px);
+        padding-top: calc(0px + 26px);
     }
 
     .archive-modal {
@@ -4309,7 +4309,7 @@ html, body {
     }
 
     .hear-content {
-        padding-top: calc(0px + 34px);
+        padding-top: calc(0px + 18px);
     }
     .hear-hero {
         margin-bottom: 8px;
@@ -4350,7 +4350,7 @@ html, body {
     }
 
     .touch-content {
-        padding-top: calc(0px + 34px);
+        padding-top: calc(0px + 18px);
     }
     .touch-hero {
         margin-bottom: 8px;
@@ -4414,7 +4414,7 @@ html, body {
     }
 
     .memory-content {
-        padding-top: calc(0px + 68px);
+        padding-top: calc(0px + 36px);
     }
     .memory-grid {
         gap: 8px;
