@@ -49,6 +49,7 @@ let isRecording = false;
 let isPlaying = false;
 let audioUrl = null;
 let audioElement = null;
+let lastAudioBlob = null;
 let waveformAnimationId = null;
 let timerInterval = null;
 let startTime = 0;
@@ -1908,24 +1909,39 @@ function drawFeedbackWaveformFromData(dataArray) {
 }
 
 function drawFeedbackWaveformFromAudio(url) {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    fetch(url)
-        .then(res => res.arrayBuffer())
-        .then(buffer => audioContext.decodeAudioData(buffer))
-        .then(decoded => {
-            const channelData = decoded.getChannelData(0);
-            const sampleStep = Math.floor(channelData.length / 24);
-            const dataArray = new Uint8Array(24);
-            for (let i = 0; i < 24; i++) {
-                const idx = i * sampleStep;
-                const val = Math.abs(channelData[idx] || 0);
-                dataArray[i] = Math.min(255, Math.floor(val * 255));
-            }
-            drawFeedbackWaveformFromData(dataArray);
-        })
-        .catch(err => {
-            console.warn('无法解码音频绘制反馈波形:', err);
-        });
+    const decodeAndDrawFeedback = (arrayBuffer) => {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioContext.decodeAudioData(arrayBuffer)
+            .then(decoded => {
+                const channelData = decoded.getChannelData(0);
+                const sampleStep = Math.floor(channelData.length / 24);
+                const dataArray = new Uint8Array(24);
+                for (let i = 0; i < 24; i++) {
+                    const idx = i * sampleStep;
+                    const val = Math.abs(channelData[idx] || 0);
+                    dataArray[i] = Math.min(255, Math.floor(val * 255));
+                }
+                drawFeedbackWaveformFromData(dataArray);
+            })
+            .catch(err => {
+                console.warn('无法解码音频绘制反馈波形:', err);
+                drawEmptyFeedbackWaveform();
+            });
+    };
+
+    if (lastAudioBlob) {
+        const reader = new FileReader();
+        reader.onloadend = () => decodeAndDrawFeedback(reader.result);
+        reader.readAsArrayBuffer(lastAudioBlob);
+    } else {
+        fetch(url)
+            .then(res => res.arrayBuffer())
+            .then(buf => decodeAndDrawFeedback(buf))
+            .catch(err => {
+                console.warn('fetch 失败:', err);
+                drawEmptyFeedbackWaveform();
+            });
+    }
 }
 
 function startRecording() {
@@ -1933,49 +1949,31 @@ function startRecording() {
 
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then((stream) => {
-            mediaRecorder = new MediaRecorder(stream);
+            // Pick a MIME type that's widely supported on mobile
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : MediaRecorder.isTypeSupported('audio/mp4')
+                    ? 'audio/mp4'
+                    : '';
+            mediaRecorder = mimeType
+                ? new MediaRecorder(stream, { mimeType })
+                : new MediaRecorder(stream);
+
             audioChunks = [];
             isRecording = true;
             isPlaying = false;
 
+            // timeslice=100ms ensures data arrives even on short recordings
             mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) {
+                if (e.data && e.data.size > 0) {
                     audioChunks.push(e.data);
                 }
             };
 
             mediaRecorder.onstop = () => {
                 isRecording = false;
-                const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                if (audioUrl) {
-                    URL.revokeObjectURL(audioUrl);
-                }
-                audioUrl = URL.createObjectURL(blob);
-                if (audioElement) {
-                    audioElement.src = audioUrl;
-                } else {
-                    audioElement = new Audio(audioUrl);
-                }
-                audioElement.onended = () => {
-                    isPlaying = false;
-                    if (hearRecordBtn) {
-                        hearRecordBtn.classList.remove('is-playing');
-                    }
-                };
-                if (hearSubmitBtn) {
-                    hearSubmitBtn.disabled = false;
-                }
-                if (hearStopBtn) {
-                    hearStopBtn.style.opacity = '1';
-                    hearStopBtn.style.pointerEvents = 'auto';
-                }
-                if (hearRecordBtn) {
-                    hearRecordBtn.classList.remove('is-recording');
-                }
-                if (hearStopBtn) {
-                    hearStopBtn.style.opacity = '1';
-                    hearStopBtn.style.pointerEvents = 'auto';
-                }
+
+                // Stop animation loop first
                 if (waveformAnimationId) {
                     cancelAnimationFrame(waveformAnimationId);
                     waveformAnimationId = null;
@@ -1984,27 +1982,49 @@ function startRecording() {
                     clearInterval(timerInterval);
                     timerInterval = null;
                 }
+
+                // Stop microphone tracks
+                stream.getTracks().forEach(t => t.stop());
+
+                const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                lastAudioBlob = blob; // store for FileReader-based decode
+                if (audioUrl) URL.revokeObjectURL(audioUrl);
+                audioUrl = URL.createObjectURL(blob);
+
+                if (audioElement) {
+                    audioElement.src = audioUrl;
+                } else {
+                    audioElement = new Audio(audioUrl);
+                }
+                audioElement.onended = () => {
+                    isPlaying = false;
+                    if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
+                    if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
+                };
+
+                if (hearSubmitBtn) hearSubmitBtn.disabled = false;
+                if (hearStopBtn) {
+                    hearStopBtn.style.opacity = '1';
+                    hearStopBtn.style.pointerEvents = 'auto';
+                }
+                if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording');
+
                 drawWaveformFromAudio(audioUrl);
             };
 
-            mediaRecorder.start();
+            mediaRecorder.start(100); // collect data every 100ms
             startTime = Date.now() - elapsedTime;
-            if (timerInterval) {
-                clearInterval(timerInterval);
-            }
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(updateTimer, 100);
 
-            if (hearRecordBtn) {
-                hearRecordBtn.classList.add('is-recording');
-            }
+            if (hearRecordBtn) hearRecordBtn.classList.add('is-recording');
             if (hearStopBtn) {
                 hearStopBtn.style.opacity = '0.5';
                 hearStopBtn.style.pointerEvents = 'none';
             }
-            if (hearSubmitBtn) {
-                hearSubmitBtn.disabled = true;
-            }
+            if (hearSubmitBtn) hearSubmitBtn.disabled = true;
 
+            // Real-time waveform via Web Audio analyser
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const source = audioContext.createMediaStreamSource(stream);
             const analyser = audioContext.createAnalyser();
@@ -2013,17 +2033,17 @@ function startRecording() {
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
             function animateWaveform() {
-                if (!isRecording) return;
+                waveformAnimationId = requestAnimationFrame(animateWaveform);
                 analyser.getByteFrequencyData(dataArray);
                 drawWaveformFromData(dataArray);
-                waveformAnimationId = requestAnimationFrame(animateWaveform);
+                if (!isRecording) {
+                    cancelAnimationFrame(waveformAnimationId);
+                    waveformAnimationId = null;
+                }
             }
             animateWaveform();
 
-            mediaRecorder._analyser = analyser;
-            mediaRecorder._dataArray = dataArray;
             mediaRecorder._audioContext = audioContext;
-            mediaRecorder._source = source;
         })
         .catch((err) => {
             showToast('无法访问麦克风，请检查权限设置');
@@ -2099,25 +2119,42 @@ function updateTimer() {
 }
 
 function drawWaveformFromAudio(url) {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    fetch(url)
-        .then(res => res.arrayBuffer())
-        .then(buffer => audioContext.decodeAudioData(buffer))
-        .then(decoded => {
-            const channelData = decoded.getChannelData(0);
-            const sampleStep = Math.floor(channelData.length / 48);
-            const dataArray = new Uint8Array(48);
-            for (let i = 0; i < 48; i++) {
-                const idx = i * sampleStep;
-                const val = Math.abs(channelData[idx] || 0);
-                dataArray[i] = Math.min(255, Math.floor(val * 255));
-            }
-            drawWaveformFromData(dataArray);
-            drawFeedbackWaveformFromData(dataArray);
-        })
-        .catch(err => {
-            console.warn('无法解码音频绘制波形:', err);
-        });
+    // Use the stored blob directly if available, otherwise fall back to fetch
+    const decodeAndDraw = (arrayBuffer) => {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        audioContext.decodeAudioData(arrayBuffer)
+            .then(decoded => {
+                const channelData = decoded.getChannelData(0);
+                const sampleStep = Math.floor(channelData.length / 48);
+                const dataArray = new Uint8Array(48);
+                for (let i = 0; i < 48; i++) {
+                    const idx = i * sampleStep;
+                    const val = Math.abs(channelData[idx] || 0);
+                    dataArray[i] = Math.min(255, Math.floor(val * 255));
+                }
+                drawWaveformFromData(dataArray);
+                drawFeedbackWaveformFromData(dataArray);
+            })
+            .catch(err => {
+                console.warn('无法解码音频绘制波形:', err);
+                drawEmptyWaveform();
+            });
+    };
+
+    // Prefer stored blob over object URL (more reliable on mobile)
+    if (lastAudioBlob) {
+        const reader = new FileReader();
+        reader.onloadend = () => decodeAndDraw(reader.result);
+        reader.readAsArrayBuffer(lastAudioBlob);
+    } else {
+        fetch(url)
+            .then(res => res.arrayBuffer())
+            .then(buf => decodeAndDraw(buf))
+            .catch(err => {
+                console.warn('fetch blob URL 失败:', err);
+                drawEmptyWaveform();
+            });
+    }
 }
 
 function submitHearTask() {
@@ -2228,6 +2265,7 @@ function cleanupHearRecording() {
         URL.revokeObjectURL(audioUrl);
         audioUrl = null;
     }
+    lastAudioBlob = null;
     isRecording = false;
     isPlaying = false;
     elapsedTime = 0;
