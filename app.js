@@ -1584,24 +1584,31 @@ function initHearPage() {
         hearStopBtn.style.pointerEvents = 'none';
     }
 
-    // Re-size canvas now that the page is actually visible
-    if (hearWaveformCanvas) {
-        resizeWaveformCanvas(hearWaveformCanvas);
-        hearWaveformCtx = hearWaveformCanvas.getContext('2d');
-    }
-    if (hearFeedbackWaveformCanvas) {
-        resizeWaveformCanvas(hearFeedbackWaveformCanvas);
-        hearFeedbackWaveformCtx = hearFeedbackWaveformCanvas.getContext('2d');
+    // ✅ 安卓修复：页面切换动画结束后再 resize，确保 canvas 父元素尺寸已经确定
+    // 用两次 rAF + setTimeout 确保 layout 完成
+    function doResizeAndDraw() {
+        if (hearWaveformCanvas) {
+            resizeWaveformCanvas(hearWaveformCanvas);
+            hearWaveformCtx = hearWaveformCanvas.getContext('2d');
+        }
+        if (hearFeedbackWaveformCanvas) {
+            resizeWaveformCanvas(hearFeedbackWaveformCanvas);
+            hearFeedbackWaveformCtx = hearFeedbackWaveformCanvas.getContext('2d');
+        }
+        if (hearWaveformCanvas && hearWaveformCtx) {
+            hearWaveformCtx.clearRect(0, 0, hearWaveformCanvas.width, hearWaveformCanvas.height);
+            drawEmptyWaveform();
+        }
+        if (hearFeedbackWaveformCanvas && hearFeedbackWaveformCtx) {
+            hearFeedbackWaveformCtx.clearRect(0, 0, hearFeedbackWaveformCanvas.width, hearFeedbackWaveformCanvas.height);
+            drawEmptyFeedbackWaveform();
+        }
     }
 
-    if (hearWaveformCanvas && hearWaveformCtx) {
-        hearWaveformCtx.clearRect(0, 0, hearWaveformCanvas.width, hearWaveformCanvas.height);
-        drawEmptyWaveform();
-    }
-    if (hearFeedbackWaveformCanvas && hearFeedbackWaveformCtx) {
-        hearFeedbackWaveformCtx.clearRect(0, 0, hearFeedbackWaveformCanvas.width, hearFeedbackWaveformCanvas.height);
-        drawEmptyFeedbackWaveform();
-    }
+    // 立即执行一次（兜底）
+    doResizeAndDraw();
+    // 再延迟执行一次，等页面过渡动画结束后重新测量尺寸
+    setTimeout(doResizeAndDraw, 350);
 }
 
 function drawEmptyWaveform() {
@@ -1652,6 +1659,7 @@ function drawWaveformFromData(dataArray) {
     if (!hearWaveformCanvas || !hearWaveformCtx) return;
     const w = hearWaveformCanvas.width;
     const h = hearWaveformCanvas.height;
+    if (w === 0 || h === 0) return;
     const barCount = 32;
     const barWidth = 6;
     const gap = 8;
@@ -1661,17 +1669,18 @@ function drawWaveformFromData(dataArray) {
 
     hearWaveformCtx.clearRect(0, 0, w, h);
 
-    const step = Math.floor(dataArray.length / barCount);
+    const step = Math.max(1, Math.floor(dataArray.length / barCount));
     for (let i = 0; i < barCount; i++) {
         const idx = i * step;
-        const val = dataArray[idx] || 0;
-        const normalized = val / 128.0;
-        const height = Math.max(4, normalized * 40);
+        const val = dataArray[idx] || 128;
+        // 时域数据：128 = 静音，偏离128 = 有声音
+        // 将偏离量映射为条形高度，放大系数调大让手机上也可见
+        const deviation = Math.abs(val - 128) / 128.0;
+        const height = Math.max(4, deviation * (h * 0.75));
         const x = startX + i * (barWidth + gap);
-        const y = centerY - height / 2 - 10;
-        const alpha = 0.5 + normalized * 0.5;
+        const y = centerY - height / 2;
+        const alpha = 0.45 + deviation * 0.55;
         hearWaveformCtx.fillStyle = `rgba(166, 92, 72, ${alpha})`;
-        // 绘制圆角矩形
         roundRect(hearWaveformCtx, x, y, barWidth, height, 3);
         hearWaveformCtx.fill();
     }
@@ -1889,7 +1898,9 @@ function startRecording() {
                             return;
                         }
                         waveformAnimationId = requestAnimationFrame(animateWaveform);
-                        analyser.getByteFrequencyData(dataArray);
+                        // ✅ 安卓修复：用时域数据（TimeDomain）代替频域数据
+                        // 时域数据静音时值=128，有声音时偏离128，振幅更直观可见
+                        analyser.getByteTimeDomainData(dataArray);
                         drawWaveformFromData(dataArray);
                     }
                     animateWaveform();
@@ -1951,43 +1962,34 @@ function stopRecording() {
     mediaRecorder.stop();
 }
 
-// ✅ iOS 修复版：playRecording
-// iOS Safari 要求：必须先 load() 再等 canplaythrough，才能 play()。
-// 直接调用 play() 在 iOS 上会因音频未就绪而抛出 NotSupportedError。
+// ✅ 修复版：playRecording（安卓 + iOS 兼容）
+// 无论 readyState 是什么，统一走 canplaythrough 路径，最稳定
 function playRecording() {
     if (!audioUrl || isPlaying) return;
 
-    // 如果 audioElement 已经可以播放（readyState >= HAVE_FUTURE_DATA），直接播
-    if (audioElement && audioElement.readyState >= 3) {
+    // 如果已经在播放，先停
+    if (audioElement && !audioElement.paused) {
+        audioElement.pause();
         audioElement.currentTime = 0;
-        audioElement.play().then(() => {
-            isPlaying = true;
-            if (hearStopBtn) hearStopBtn.classList.add('is-playing');
-        }).catch(err => {
-            if (err.name !== 'AbortError') {
-                showToast('播放失败，请重试');
-                console.warn('播放失败:', err);
-            }
-        });
-        return;
     }
 
-    // 否则重新创建并 load()，等待 canplaythrough
     if (!audioElement) {
         audioElement = new Audio();
         audioElement.preload = 'auto';
         audioElement.onended = () => {
             isPlaying = false;
             if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
+            if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
         };
     }
 
-    let played = false;
+    let didPlay = false;
 
-    audioElement.oncanplaythrough = function onReady() {
-        if (played) return;
-        played = true;
+    const tryPlay = () => {
+        if (didPlay) return;
+        didPlay = true;
         audioElement.oncanplaythrough = null;
+        audioElement.oncanplay = null;
         audioElement.play().then(() => {
             isPlaying = true;
             if (hearStopBtn) hearStopBtn.classList.add('is-playing');
@@ -1999,9 +2001,14 @@ function playRecording() {
         });
     };
 
-    audioElement.onerror = function() {
+    audioElement.onerror = () => {
         showToast('音频加载失败，请重新录制');
+        isPlaying = false;
     };
+
+    // 同时监听 canplay 和 canplaythrough，哪个先来用哪个（安卓有时只触发 canplay）
+    audioElement.oncanplay = tryPlay;
+    audioElement.oncanplaythrough = tryPlay;
 
     audioElement.src = audioUrl;
     audioElement.load();
@@ -3206,10 +3213,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function resizeWaveformCanvas(canvas) {
     if (!canvas) return;
-    const rect = canvas.parentElement.getBoundingClientRect();
+    const parent = canvas.parentElement;
+    if (!parent) return;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(rect.width, canvas.parentElement.offsetWidth, 100);
-    const h = Math.max(rect.height, canvas.parentElement.offsetHeight, 80);
+    // getBoundingClientRect 在 display:none 时返回0，用 offsetWidth/offsetHeight 兜底
+    let w = parent.getBoundingClientRect().width || parent.offsetWidth;
+    let h = parent.getBoundingClientRect().height || parent.offsetHeight;
+    // 最终兜底：如果父元素尺寸还是0（页面隐藏中），用 canvas 的 CSS 尺寸或合理默认值
+    if (w <= 0) w = parseInt(canvas.style.width) || 300;
+    if (h <= 0) h = parseInt(canvas.style.height) || 120;
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
     canvas.style.width = w + 'px';
