@@ -41,6 +41,21 @@
             background: #000;
         }
 
+        :root {
+            --btn-min-height: 72px;
+            --btn-font-size: 28px;
+            --btn-min-height-sm: 46px;
+            --btn-font-size-sm: 18px;
+            --btn-min-height-xs: 40px;
+            --btn-font-size-xs: 16px;
+            --avatar-wrap-width: 80px;
+            --avatar-wrap-width-sm: 64px;
+            --avatar-wrap-width-xs: 54px;
+            --avatar-visual-width: 104px;
+            --nav-gap: clamp(24px, 8vw, 50px);
+            --safe-area-bottom: max(env(safe-area-inset-bottom, 0px), constant(safe-area-inset-bottom, 0px), 12px);
+        }
+
         /* App Container */
         .app-container {
             position: relative;
@@ -1031,7 +1046,10 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: calc(0px + 30px) 22px 110px;
         }
 
@@ -1170,7 +1188,10 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: calc(0px + 30px) 20px 32px;
         }
 
@@ -1214,7 +1235,7 @@
         }
 
         .visual-hero-avatar {
-            width: 104px;
+            width: var(--avatar-visual-width, 104px);
             height: auto;
             object-fit: contain;
             flex-shrink: 0;
@@ -1271,6 +1292,7 @@
             width: 100%;
             height: 100%;
             min-height: 232px;
+            max-height: 50vh;
             object-fit: cover;
             border-radius: 14px;
         }
@@ -1285,14 +1307,15 @@
             display: block;
             width: calc(100% - 36px);
             margin: auto 18px 0;
-            min-height: 72px;
+            min-height: var(--btn-min-height);
             border-radius: 999px;
             border: 4px solid #f4efda;
             background: #b8cc2b;
             color: #fffdf4;
             font-family: 'AiDianQuYaYuan', 'PingFang SC', sans-serif;
-            font-size: 28px;
+            font-size: var(--btn-font-size);
             cursor: pointer;
+            flex-shrink: 0;
         }
 
         .visual-modal-overlay {
@@ -1536,8 +1559,11 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
-            padding: calc(0px + 30px) 20px 32px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: calc(0px + 40px) 20px 32px;
         }
 
         .hear-header {
@@ -1580,7 +1606,7 @@
         }
 
         .hear-hero-avatar-wrap {
-            width: 104px;
+            width: var(--avatar-wrap-width);
             flex-shrink: 0;
         }
 
@@ -1739,13 +1765,13 @@
             display: block;
             width: calc(100% - 36px);
             margin: auto 18px 0;
-            min-height: 72px;
+            min-height: var(--btn-min-height);
             border-radius: 999px;
             border: 4px solid #f4efda;
             background: #b8cc2b;
             color: #fffdf4;
             font-family: 'AiDianQuYaYuan', 'PingFang SC', sans-serif;
-            font-size: 28px;
+            font-size: var(--btn-font-size);
             cursor: pointer;
             transition: transform 0.2s ease, background 0.2s ease;
         }
@@ -1963,8 +1989,11 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
-            padding: calc(0px + 30px) 20px 32px;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: calc(0px + 40px) 20px 32px;
         }
 
         .touch-header {
@@ -2007,7 +2036,7 @@
         }
 
         .touch-hero-avatar-wrap {
-            width: 104px;
+            width: var(--avatar-wrap-width);
             flex-shrink: 0;
         }
 
@@ -2098,13 +2127,13 @@
             display: block;
             width: calc(100% - 36px);
             margin: auto 18px 0;
-            min-height: 72px;
+            min-height: var(--btn-min-height);
             border-radius: 999px;
             border: 4px solid #f4efda;
             background: #b8cc2b;
             color: #fffdf4;
             font-family: 'AiDianQuYaYuan', 'PingFang SC', sans-serif;
-            font-size: 28px;
+            font-size: var(--btn-font-size);
             cursor: pointer;
             transition: transform 0.2s ease, background 0.2s ease;
             flex-shrink: 0;
@@ -2341,9 +2370,11 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
             padding: calc(0px + 50px) 18px 120px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .profile-hero {
@@ -2683,7 +2714,10 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: calc(0px + 30px) 18px 32px;
         }
 
@@ -3530,7 +3564,10 @@
             z-index: 2;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: calc(0px + 30px) 18px 26px;
             gap: 12px;
         }
@@ -3920,18 +3957,19 @@
            Bottom Navigation Bar
            ======================================== */
         .bottom-nav {
-            position: absolute;
-            left: 0;
+            position: fixed;
+            left: 50%;
             bottom: 0;
+            transform: translateX(-50%);
             width: 100%;
             max-width: 430px;
-            height: calc(130px + env(safe-area-inset-bottom, 0px));
+            height: calc(130px + var(--safe-area-bottom));
             display: flex;
             align-items: flex-start;
             justify-content: center;
-            gap: 35px;
+            gap: var(--nav-gap);
             padding-top: 8px;
-            padding-bottom: env(safe-area-inset-bottom, 0px);
+            padding-bottom: var(--safe-area-bottom);
             z-index: 1000;
             overflow: hidden;
         }
@@ -4134,8 +4172,92 @@
             .hear-content {
                 padding-top: calc(0px + 40px);
             }
-            .hear-hero-avatar-wrap {
-                width: 84px;
+            :root {
+                --btn-min-height: 46px;
+                --btn-font-size: 18px;
+                --avatar-wrap-width: 64px;
+            }
+
+            .hear-hero-bubble p {
+                font-size: 12px;
+            }
+            .hear-waveform-container {
+                min-height: 100px;
+                max-height: 160px;
+            }
+            .hear-timer {
+                font-size: 18px;
+            }
+            .hear-stop-btn,
+            .hear-record-btn {
+                width: 54px;
+                height: 54px;
+            }
+            .hear-stop-icon {
+                width: 18px;
+                height: 18px;
+            }
+            .hear-record-icon {
+                border-left-width: 14px;
+                border-top-width: 10px;
+                border-bottom-width: 10px;
+            }
+            .hear-feedback-rabbit {
+                width: 76px;
+            }
+            .hear-feedback-bubble p {
+                font-size: 13px;
+            }
+
+            .touch-content {
+                padding-top: calc(0px + 40px);
+            }
+            .touch-hero-bubble p {
+                font-size: 13px;
+            }
+            .touch-input-panel {
+                min-height: 160px;
+                padding: 12px 14px;
+            }
+            .touch-textarea {
+                font-size: 14px;
+                min-height: 140px;
+            }
+            .touch-feedback-modal {
+                min-height: 480px;
+            }
+            .touch-feedback-content-area {
+                min-height: 440px;
+                padding: 10px 12px 12px;
+            }
+            .touch-feedback-text-display {
+                min-height: 80px;
+                max-height: 120px;
+            }
+            .touch-feedback-text-inner {
+                font-size: 14px;
+            }
+            .touch-feedback-bubble p {
+                font-size: 13px;
+            }
+            .touch-feedback-rabbit {
+                width: 68px;
+            }
+            .touch-continue-btn {
+                width: 110px;
+                min-height: 38px;
+                font-size: 14px;
+            }
+
+            .profile-content {
+                padding-top: calc(0px + 8px);
+                padding-bottom: 90px;
+            }
+            .profile-hero {
+                min-height: 240px;
+            }
+            .profile-rabbit {
+                width: 240px;
             }
             .hear-hero-bubble p {
                 font-size: 12px;
@@ -4285,6 +4407,12 @@
         }
 
         @media (max-height: 580px) {
+            :root {
+                --btn-min-height: 40px;
+                --btn-font-size: 16px;
+                --avatar-wrap-width: 54px;
+            }
+
             .login-content {
                 margin-top: 10vh;
             }
@@ -4317,9 +4445,6 @@
             .hear-hero {
                 margin-bottom: 8px;
             }
-            .hear-hero-avatar-wrap {
-                width: 70px;
-            }
             .hear-waveform-container {
                 min-height: 80px;
                 max-height: 120px;
@@ -4347,19 +4472,12 @@
                 border-top-width: 8px;
                 border-bottom-width: 8px;
             }
-            .hear-submit-btn {
-                font-size: 16px;
-                min-height: 40px;
-            }
 
             .touch-content {
                 padding-top: calc(0px + 14px);
             }
             .touch-hero {
                 margin-bottom: 8px;
-            }
-            .touch-hero-avatar-wrap {
-                width: 70px;
             }
             .touch-input-panel {
                 min-height: 120px;
@@ -4370,10 +4488,6 @@
                 font-size: 13px;
                 min-height: 100px;
                 padding: 8px 6px;
-            }
-            .touch-submit-btn {
-                font-size: 16px;
-                min-height: 40px;
             }
 
             .profile-content {
@@ -4431,6 +4545,12 @@
         }
 
         @media (max-width: 390px) {
+            :root {
+                --btn-min-height: 48px;
+                --btn-font-size: 18px;
+                --avatar-wrap-width: 78px;
+            }
+
             .location-card-content {
                 gap: 10px;
             }
@@ -4501,9 +4621,6 @@
             .hear-title {
                 font-size: 28px;
             }
-            .hear-hero-avatar-wrap {
-                width: 78px;
-            }
             .hear-hero-bubble p {
                 font-size: 12px;
             }
@@ -4519,10 +4636,6 @@
             .hear-record-btn {
                 width: 54px;
                 height: 54px;
-            }
-            .hear-submit-btn {
-                font-size: 18px;
-                min-height: 48px;
             }
             .hear-feedback-modal {
                 max-width: 320px;
@@ -4544,9 +4657,6 @@
                 width: 32px;
                 height: 32px;
             }
-            .touch-hero-avatar-wrap {
-                width: 78px;
-            }
             .touch-hero-bubble p {
                 font-size: 13px;
             }
@@ -4557,10 +4667,6 @@
             .touch-textarea {
                 font-size: 14px;
                 min-height: 120px;
-            }
-            .touch-submit-btn {
-                font-size: 18px;
-                min-height: 44px;
             }
             .touch-feedback-modal {
                 max-width: 320px;
@@ -4684,6 +4790,13 @@
                     0 0 0 8px #1a0f0a,
                     0 0 0 10px rgba(255, 255, 255, 0.1),
                     0 20px 60px rgba(0, 0, 0, 0.5);
+            }
+
+            .bottom-nav {
+                position: absolute;
+                left: 0;
+                bottom: 0;
+                transform: none;
             }
         }
 
