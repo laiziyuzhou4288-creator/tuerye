@@ -5853,6 +5853,7 @@
         let isPlaying = false;
         let audioUrl = null;
         let audioElement = null;
+        let lastAudioBlob = null;
         let waveformAnimationId = null;
         let timerInterval = null;
         let startTime = 0;
@@ -7736,6 +7737,7 @@
             isPlaying = false;
             elapsedTime = 0;
             audioUrl = null;
+            lastAudioBlob = null;
             if (audioElement) {
                 audioElement.pause();
                 audioElement.src = '';
@@ -7751,6 +7753,21 @@
             if (hearSubmitBtn) {
                 hearSubmitBtn.disabled = true;
             }
+            if (hearStopBtn) {
+                hearStopBtn.style.opacity = '0.5';
+                hearStopBtn.style.pointerEvents = 'none';
+            }
+
+            // Re-size canvas now that the page is actually visible
+            if (hearWaveformCanvas) {
+                resizeWaveformCanvas(hearWaveformCanvas);
+                hearWaveformCtx = hearWaveformCanvas.getContext('2d');
+            }
+            if (hearFeedbackWaveformCanvas) {
+                resizeWaveformCanvas(hearFeedbackWaveformCanvas);
+                hearFeedbackWaveformCtx = hearFeedbackWaveformCanvas.getContext('2d');
+            }
+
             if (hearWaveformCanvas && hearWaveformCtx) {
                 hearWaveformCtx.clearRect(0, 0, hearWaveformCanvas.width, hearWaveformCanvas.height);
                 drawEmptyWaveform();
@@ -7758,10 +7775,6 @@
             if (hearFeedbackWaveformCanvas && hearFeedbackWaveformCtx) {
                 hearFeedbackWaveformCtx.clearRect(0, 0, hearFeedbackWaveformCanvas.width, hearFeedbackWaveformCanvas.height);
                 drawEmptyFeedbackWaveform();
-            }
-            if (hearStopBtn) {
-                hearStopBtn.style.opacity = '0.5';
-                hearStopBtn.style.pointerEvents = 'none';
             }
         }
 
@@ -7881,24 +7894,35 @@
         }
 
         function drawFeedbackWaveformFromAudio(url) {
-            const audioContext = new(window.AudioContext || window.webkitAudioContext)();
-            fetch(url)
-                .then(res => res.arrayBuffer())
-                .then(buffer => audioContext.decodeAudioData(buffer))
-                .then(decoded => {
-                    const channelData = decoded.getChannelData(0);
-                    const sampleStep = Math.floor(channelData.length / 24);
-                    const dataArray = new Uint8Array(24);
-                    for (let i = 0; i < 24; i++) {
-                        const idx = i * sampleStep;
-                        const val = Math.abs(channelData[idx] || 0);
-                        dataArray[i] = Math.min(255, Math.floor(val * 255));
-                    }
-                    drawFeedbackWaveformFromData(dataArray);
-                })
-                .catch(err => {
-                    console.warn('无法解码音频绘制反馈波形:', err);
-                });
+            const decodeAndDrawFeedback = (arrayBuffer) => {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                audioContext.decodeAudioData(arrayBuffer)
+                    .then(decoded => {
+                        const channelData = decoded.getChannelData(0);
+                        const sampleStep = Math.floor(channelData.length / 24) || 1;
+                        const dataArray = new Uint8Array(24);
+                        for (let i = 0; i < 24; i++) {
+                            const val = Math.abs(channelData[i * sampleStep] || 0);
+                            dataArray[i] = Math.min(255, Math.floor(val * 255));
+                        }
+                        drawFeedbackWaveformFromData(dataArray);
+                    })
+                    .catch(err => {
+                        console.warn('反馈波形解码失败:', err);
+                        drawEmptyFeedbackWaveform();
+                    });
+            };
+
+            if (lastAudioBlob) {
+                const reader = new FileReader();
+                reader.onloadend = () => decodeAndDrawFeedback(reader.result);
+                reader.readAsArrayBuffer(lastAudioBlob);
+            } else {
+                fetch(url)
+                    .then(res => res.arrayBuffer())
+                    .then(buf => decodeAndDrawFeedback(buf))
+                    .catch(() => drawEmptyFeedbackWaveform());
+            }
         }
 
         function startRecording() {
@@ -7906,49 +7930,31 @@
 
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then((stream) => {
-                    mediaRecorder = new MediaRecorder(stream);
+                    // Pick best supported MIME type (iOS needs mp4, Android/Chrome prefers webm)
+                    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                        ? 'audio/webm;codecs=opus'
+                        : MediaRecorder.isTypeSupported('audio/mp4')
+                            ? 'audio/mp4'
+                            : '';
+                    mediaRecorder = mimeType
+                        ? new MediaRecorder(stream, { mimeType })
+                        : new MediaRecorder(stream);
+
                     audioChunks = [];
                     isRecording = true;
                     isPlaying = false;
 
+                    // timeslice=100ms: data arrives every 100ms, critical for iOS Safari
                     mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0) {
+                        if (e.data && e.data.size > 0) {
                             audioChunks.push(e.data);
                         }
                     };
 
                     mediaRecorder.onstop = () => {
                         isRecording = false;
-                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                        if (audioUrl) {
-                            URL.revokeObjectURL(audioUrl);
-                        }
-                        audioUrl = URL.createObjectURL(blob);
-                        if (audioElement) {
-                            audioElement.src = audioUrl;
-                        } else {
-                            audioElement = new Audio(audioUrl);
-                        }
-                        audioElement.onended = () => {
-                            isPlaying = false;
-                            if (hearRecordBtn) {
-                                hearRecordBtn.classList.remove('is-playing');
-                            }
-                        };
-                        if (hearSubmitBtn) {
-                            hearSubmitBtn.disabled = false;
-                        }
-                        if (hearStopBtn) {
-                            hearStopBtn.style.opacity = '1';
-                            hearStopBtn.style.pointerEvents = 'auto';
-                        }
-                        if (hearRecordBtn) {
-                            hearRecordBtn.classList.remove('is-recording');
-                        }
-                        if (hearStopBtn) {
-                            hearStopBtn.style.opacity = '1';
-                            hearStopBtn.style.pointerEvents = 'auto';
-                        }
+
+                        // Cancel animation and timer first
                         if (waveformAnimationId) {
                             cancelAnimationFrame(waveformAnimationId);
                             waveformAnimationId = null;
@@ -7957,28 +7963,57 @@
                             clearInterval(timerInterval);
                             timerInterval = null;
                         }
+
+                        // Release microphone tracks
+                        stream.getTracks().forEach(t => t.stop());
+
+                        const recordedMime = mediaRecorder.mimeType || 'audio/webm';
+                        const blob = new Blob(audioChunks, { type: recordedMime });
+                        lastAudioBlob = blob; // store for FileReader-based decode
+
+                        if (audioUrl) URL.revokeObjectURL(audioUrl);
+                        audioUrl = URL.createObjectURL(blob);
+
+                        if (audioElement) {
+                            audioElement.src = audioUrl;
+                        } else {
+                            audioElement = new Audio(audioUrl);
+                        }
+                        audioElement.onended = () => {
+                            isPlaying = false;
+                            if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
+                            if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
+                        };
+
+                        if (hearSubmitBtn) hearSubmitBtn.disabled = false;
+                        if (hearStopBtn) {
+                            hearStopBtn.style.opacity = '1';
+                            hearStopBtn.style.pointerEvents = 'auto';
+                        }
+                        if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording');
+
+                        // Draw static waveform from the actual recorded blob
                         drawWaveformFromAudio(audioUrl);
                     };
 
-                    mediaRecorder.start();
+                    mediaRecorder.start(100); // collect chunks every 100ms
                     startTime = Date.now() - elapsedTime;
-                    if (timerInterval) {
-                        clearInterval(timerInterval);
-                    }
+                    if (timerInterval) clearInterval(timerInterval);
                     timerInterval = setInterval(updateTimer, 100);
 
-                    if (hearRecordBtn) {
-                        hearRecordBtn.classList.add('is-recording');
-                    }
+                    if (hearRecordBtn) hearRecordBtn.classList.add('is-recording');
                     if (hearStopBtn) {
                         hearStopBtn.style.opacity = '0.5';
                         hearStopBtn.style.pointerEvents = 'none';
                     }
-                    if (hearSubmitBtn) {
-                        hearSubmitBtn.disabled = true;
-                    }
+                    if (hearSubmitBtn) hearSubmitBtn.disabled = true;
 
-                    const audioContext = new(window.AudioContext || window.webkitAudioContext)();
+                    // Real-time waveform via Web Audio analyser
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    // iOS requires AudioContext to be resumed after user gesture
+                    if (audioContext.state === 'suspended') {
+                        audioContext.resume();
+                    }
                     const source = audioContext.createMediaStreamSource(stream);
                     const analyser = audioContext.createAnalyser();
                     analyser.fftSize = 256;
@@ -7986,17 +8021,19 @@
                     const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
                     function animateWaveform() {
-                        if (!isRecording) return;
+                        // Schedule next frame first so cancellation is clean
+                        waveformAnimationId = requestAnimationFrame(animateWaveform);
+                        if (!isRecording) {
+                            cancelAnimationFrame(waveformAnimationId);
+                            waveformAnimationId = null;
+                            return;
+                        }
                         analyser.getByteFrequencyData(dataArray);
                         drawWaveformFromData(dataArray);
-                        waveformAnimationId = requestAnimationFrame(animateWaveform);
                     }
                     animateWaveform();
 
-                    mediaRecorder._analyser = analyser;
-                    mediaRecorder._dataArray = dataArray;
                     mediaRecorder._audioContext = audioContext;
-                    mediaRecorder._source = source;
                 })
                 .catch((err) => {
                     showToast('无法访问麦克风，请检查权限设置');
@@ -8015,15 +8052,21 @@
                 audioElement = new Audio(audioUrl);
                 audioElement.onended = () => {
                     isPlaying = false;
-                    if (hearStopBtn) {
-                        hearStopBtn.classList.remove('is-playing');
-                    }
+                    if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
                 };
             }
-            audioElement.play();
-            isPlaying = true;
-            if (hearStopBtn) {
-                hearStopBtn.classList.add('is-playing');
+            const playPromise = audioElement.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    isPlaying = true;
+                    if (hearStopBtn) hearStopBtn.classList.add('is-playing');
+                }).catch(err => {
+                    console.warn('播放失败:', err);
+                    showToast('播放失败，请重试');
+                });
+            } else {
+                isPlaying = true;
+                if (hearStopBtn) hearStopBtn.classList.add('is-playing');
             }
         }
 
@@ -8072,25 +8115,36 @@
         }
 
         function drawWaveformFromAudio(url) {
-            const audioContext = new(window.AudioContext || window.webkitAudioContext)();
-            fetch(url)
-                .then(res => res.arrayBuffer())
-                .then(buffer => audioContext.decodeAudioData(buffer))
-                .then(decoded => {
-                    const channelData = decoded.getChannelData(0);
-                    const sampleStep = Math.floor(channelData.length / 48);
-                    const dataArray = new Uint8Array(48);
-                    for (let i = 0; i < 48; i++) {
-                        const idx = i * sampleStep;
-                        const val = Math.abs(channelData[idx] || 0);
-                        dataArray[i] = Math.min(255, Math.floor(val * 255));
-                    }
-                    drawWaveformFromData(dataArray);
-                    drawFeedbackWaveformFromData(dataArray);
-                })
-                .catch(err => {
-                    console.warn('无法解码音频绘制波形:', err);
-                });
+            const decodeAndDraw = (arrayBuffer) => {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                audioContext.decodeAudioData(arrayBuffer)
+                    .then(decoded => {
+                        const channelData = decoded.getChannelData(0);
+                        const sampleStep = Math.floor(channelData.length / 48) || 1;
+                        const dataArray = new Uint8Array(48);
+                        for (let i = 0; i < 48; i++) {
+                            const val = Math.abs(channelData[i * sampleStep] || 0);
+                            dataArray[i] = Math.min(255, Math.floor(val * 255));
+                        }
+                        drawWaveformFromData(dataArray);
+                        drawFeedbackWaveformFromData(dataArray);
+                    })
+                    .catch(err => {
+                        console.warn('音频解码失败:', err);
+                        drawEmptyWaveform();
+                    });
+            };
+
+            if (lastAudioBlob) {
+                const reader = new FileReader();
+                reader.onloadend = () => decodeAndDraw(reader.result);
+                reader.readAsArrayBuffer(lastAudioBlob);
+            } else {
+                fetch(url)
+                    .then(res => res.arrayBuffer())
+                    .then(buf => decodeAndDraw(buf))
+                    .catch(() => drawEmptyWaveform());
+            }
         }
 
         function submitHearTask() {
@@ -8210,6 +8264,7 @@
                 URL.revokeObjectURL(audioUrl);
                 audioUrl = null;
             }
+            lastAudioBlob = null;
             isRecording = false;
             isPlaying = false;
             elapsedTime = 0;
@@ -9219,14 +9274,15 @@
             if (!canvas) return;
             const rect = canvas.parentElement.getBoundingClientRect();
             const dpr = window.devicePixelRatio || 1;
-            const w = rect.width || canvas.clientWidth || 300;
-            const h = rect.height || canvas.clientHeight || 120;
-            canvas.width = w * dpr;
-            canvas.height = h * dpr;
+            const w = Math.max(rect.width, canvas.parentElement.offsetWidth, 100);
+            const h = Math.max(rect.height, canvas.parentElement.offsetHeight, 80);
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
             canvas.style.width = w + 'px';
             canvas.style.height = h + 'px';
             const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
+            // setTransform resets the matrix first, preventing scale accumulation
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
 
         /* ========================================
