@@ -33,23 +33,19 @@ html, body {
 /* App Container */
 .app-container {
     position: relative;
-
     width: 100%;
     max-width: 430px;
-
     height: 100vh;
     height: 100dvh;
-
     margin: 0 auto;
-
     overflow: hidden;
-
     background: #f5ead9;
-
     /* border-radius removed for mobile full-screen display */
     border-radius: 0;
-
     isolation: isolate;
+    /* iOS safe area: pad top for notch/Dynamic Island */
+    padding-top: env(safe-area-inset-top, 0px);
+    box-sizing: border-box;
 }
 
 /* Page base */
@@ -129,7 +125,7 @@ html, body {
     position: relative;
     z-index: 3;
     padding: 20px 28px;
-    margin-top: 22vh;
+    margin-top: clamp(50px, 20dvh, 120px);
     flex: 1;
     background: rgba(255, 255, 255, 0); /* 更淡，但能帮文字和输入框衬底 */
     /* border-radius: 24px;  ← 去掉圆角 */
@@ -152,7 +148,7 @@ html, body {
 
 .watermark-text span {
     font-family: 'AiDianQuYaYuan', serif;
-    font-size: 100px;
+    font-size: clamp(70px, 23vw, 100px);
     color: rgba(255, 255, 255, 0.32);
     display: block;
     letter-spacing: 0;
@@ -161,9 +157,9 @@ html, body {
 /* Mascot (兔儿爷) */
 .mascot-container {
     position: absolute;
-    bottom: -100px;
-    left: -140px;
-    width: 400px;
+    bottom: -12%;
+    left: -28%;
+    width: min(400px, 88%);
     z-index: 0;
     pointer-events: none;
 }
@@ -184,7 +180,7 @@ html, body {
 
 .greeting-title {
     font-family: 'AiDianQuYaYuan', serif;
-    font-size: 42px;
+    font-size: clamp(30px, 10vw, 42px);
     color: #F0DEB8;
     font-weight: normal;
     margin-bottom: 8px;
@@ -193,7 +189,7 @@ html, body {
 
 .greeting-subtitle {
     font-family: 'AiDianQuYaYuan', serif;
-    font-size: 28px;
+    font-size: clamp(20px, 6.5vw, 28px);
     color: #E5D0A8;
     font-weight: normal;
     letter-spacing: 1px;
@@ -4427,7 +4423,167 @@ html, body {
     }
 }
 
-@media (max-width: 390px) {
+/* ========================================
+   Narrow screens: iPhone SE / small Android (≤375px)
+   ======================================== */
+@media (max-width: 375px) {
+    .login-content {
+        padding: 20px 20px;
+    }
+    .greeting {
+        padding-left: 16px;
+        margin-bottom: 28px;
+    }
+    .form-input,
+    .wechat-login-btn {
+        height: 56px;
+    }
+    .wechat-login-btn span {
+        font-size: 16px;
+    }
+    .next-btn {
+        width: 116px;
+        height: 116px;
+    }
+    .next-btn svg {
+        width: 60px;
+        height: 60px;
+    }
+    .watermark-text {
+        right: 16px;
+    }
+
+    .sense-grid {
+        gap: 52px 40px;
+    }
+    .sense-card-icon-wrap {
+        width: 62px;
+        height: 62px;
+    }
+    .sense-card-label {
+        font-size: 16px;
+    }
+
+    .location-card-title {
+        font-size: 18px;
+    }
+    .location-card-desc {
+        font-size: 12px;
+    }
+    .location-action-btn {
+        font-size: 13px;
+        height: 46px;
+    }
+
+    .visual-title,
+    .hear-title,
+    .touch-title,
+    .memory-title {
+        font-size: 26px;
+    }
+    .visual-hero-bubble p,
+    .hear-hero-bubble p,
+    .touch-hero-bubble p {
+        font-size: 12px;
+    }
+    .visual-hero-avatar {
+        width: 84px;
+    }
+    .hear-hero-avatar-wrap,
+    .touch-hero-avatar-wrap {
+        width: 66px;
+    }
+
+    .visual-submit-btn,
+    .touch-submit-btn {
+        font-size: 22px;
+        min-height: 58px;
+    }
+    .hear-submit-btn {
+        font-size: 18px;
+    }
+
+    .archive-rabbit {
+        width: 120px;
+    }
+    .archive-speech p {
+        font-size: 14px;
+    }
+    .archive-speech-hero {
+        padding: 16px 14px;
+    }
+    .archive-ask-rabbit {
+        width: 160px;
+    }
+    .archive-modal-actions {
+        padding-right: 140px;
+    }
+    .archive-modal-btn {
+        width: 170px;
+    }
+    .archive-stamp {
+        width: 102px;
+        height: 102px;
+    }
+    .archive-stamp-img {
+        width: 68px;
+        height: 68px;
+    }
+
+    .profile-rabbit-layers {
+        width: 240px;
+    }
+    .profile-wardrobe-title {
+        font-size: 20px;
+    }
+    .profile-card {
+        padding: 10px 14px;
+        min-height: 64px;
+    }
+    .profile-card-title {
+        font-size: 17px;
+    }
+    .profile-card-desc {
+        font-size: 12px;
+    }
+    .profile-card-icon {
+        width: 38px;
+        height: 38px;
+    }
+    .profile-card-arrow {
+        width: 34px;
+        height: 34px;
+    }
+
+    .memory-grid {
+        gap: 10px;
+    }
+    .memory-card {
+        padding: 8px;
+    }
+    .memory-card-name {
+        font-size: 13px;
+    }
+
+    .bottom-nav {
+        gap: 32px;
+    }
+    .nav-tab {
+        width: 70px;
+    }
+    .nav-label {
+        font-size: 12px;
+    }
+
+    .route-planner-avatar {
+        width: 56px;
+    }
+    .route-planner-title {
+        font-size: 15px;
+    }
+}
+
+@media (min-width: 376px) and (max-width: 390px) {
     .location-card-content {
         gap: 10px;
     }
