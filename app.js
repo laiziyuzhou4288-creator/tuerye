@@ -1760,27 +1760,37 @@ function drawFeedbackWaveformFromAudio(url) {
     }
 }
 
-// ✅ 修复：startRecording - 先创建 AudioContext 再获取流
+// ✅ iOS 修复版：startRecording
+// iOS Safari 要求 AudioContext 必须在用户手势的同步调用栈中创建，
+// 且必须先 resume() 完成后才能连接 MediaStream 节点。
+let _sharedAudioContext = null;
+
+function getOrCreateAudioContext() {
+    if (!_sharedAudioContext || _sharedAudioContext.state === 'closed') {
+        _sharedAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return _sharedAudioContext;
+}
+
 function startRecording() {
     if (isRecording) return;
 
-    // 1. 先创建并恢复 AudioContext（必须同步发生在手势中）
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioContext.state === 'suspended') {
-        audioContext.resume(); // 立即恢复
-    }
+    // 1. 在用户手势同步栈中创建并 resume AudioContext
+    const audioContext = getOrCreateAudioContext();
+    const resumePromise = audioContext.state === 'suspended'
+        ? audioContext.resume()
+        : Promise.resolve();
 
-    // 2. 再请求麦克风
-    navigator.mediaDevices.getUserMedia({ audio: true })
-        .then((stream) => {
-            // 确定合适的 MIME 类型（iOS 首选 audio/mp4）
+    // 2. resume 完成后再获取麦克风，确保 iOS 上 AudioContext 处于 running 状态
+    resumePromise.then(() => {
+        return navigator.mediaDevices.getUserMedia({ audio: true });
+    }).then((stream) => {
+            // 选择最优 MIME 类型（iOS Safari 支持 audio/mp4，不支持 webm）
             let mimeType = '';
-            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                mimeType = 'audio/webm;codecs=opus';
-            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 mimeType = 'audio/mp4';
-            } else if (MediaRecorder.isTypeSupported('audio/aac')) {
-                mimeType = 'audio/aac';
+            } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                mimeType = 'audio/webm;codecs=opus';
             } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
                 mimeType = 'audio/ogg;codecs=opus';
             }
@@ -1823,18 +1833,23 @@ function startRecording() {
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
                 audioUrl = URL.createObjectURL(blob);
 
-                // 创建音频元素并预加载
+                // ✅ iOS 修复：创建新 Audio 元素，load() 后等 canplaythrough 再标记可播
                 if (audioElement) {
-                    audioElement.src = audioUrl;
-                } else {
-                    audioElement = new Audio(audioUrl);
+                    audioElement.pause();
+                    audioElement.src = '';
                 }
+                audioElement = new Audio();
                 audioElement.preload = 'auto';
                 audioElement.onended = () => {
                     isPlaying = false;
                     if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
                     if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
                 };
+                audioElement.onerror = () => {
+                    console.warn('音频元素加载出错');
+                };
+                audioElement.src = audioUrl;
+                audioElement.load();
 
                 if (hearSubmitBtn) hearSubmitBtn.disabled = false;
                 if (hearStopBtn) {
@@ -1843,7 +1858,7 @@ function startRecording() {
                 }
                 if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording');
 
-                // 绘制波形（使用 FileReader 读取 blob，更稳定）
+                // 绘制波形（使用 FileReader 读取 blob，iOS 兼容）
                 drawWaveformFromBlob(lastAudioBlob);
             };
 
@@ -1859,24 +1874,34 @@ function startRecording() {
             }
             if (hearSubmitBtn) hearSubmitBtn.disabled = true;
 
-            // 实时波形分析：使用传入的 stream
-            const source = audioContext.createMediaStreamSource(stream);
-            const analyser = audioContext.createAnalyser();
-            analyser.fftSize = 256;
-            source.connect(analyser);
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            // ✅ iOS 修复：先确认 AudioContext 是 running 再连接节点
+            if (audioContext.state === 'running') {
+                try {
+                    const source = audioContext.createMediaStreamSource(stream);
+                    const analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 256;
+                    source.connect(analyser);
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-            function animateWaveform() {
-                waveformAnimationId = requestAnimationFrame(animateWaveform);
-                if (!isRecording) {
-                    cancelAnimationFrame(waveformAnimationId);
-                    waveformAnimationId = null;
-                    return;
+                    function animateWaveform() {
+                        if (!isRecording) {
+                            waveformAnimationId = null;
+                            return;
+                        }
+                        waveformAnimationId = requestAnimationFrame(animateWaveform);
+                        analyser.getByteFrequencyData(dataArray);
+                        drawWaveformFromData(dataArray);
+                    }
+                    animateWaveform();
+                } catch (e) {
+                    console.warn('波形分析器初始化失败（iOS）:', e);
+                    // 降级：用动画假波形占位
+                    startFallbackWaveformAnimation();
                 }
-                analyser.getByteFrequencyData(dataArray);
-                drawWaveformFromData(dataArray);
+            } else {
+                // AudioContext 未能激活时的降级动画
+                startFallbackWaveformAnimation();
             }
-            animateWaveform();
 
             mediaRecorder._audioContext = audioContext;
         })
@@ -1886,17 +1911,70 @@ function startRecording() {
         });
 }
 
+// ✅ 新增：iOS 降级波形动画（AudioContext 不可用时显示模拟声波）
+function startFallbackWaveformAnimation() {
+    if (waveformAnimationId) cancelAnimationFrame(waveformAnimationId);
+
+    function animateFallback() {
+        if (!isRecording) {
+            waveformAnimationId = null;
+            return;
+        }
+        waveformAnimationId = requestAnimationFrame(animateFallback);
+        if (!hearWaveformCanvas || !hearWaveformCtx) return;
+
+        const w = hearWaveformCanvas.width;
+        const h = hearWaveformCanvas.height;
+        const barCount = 32;
+        const barWidth = 6;
+        const gap = 8;
+        const totalWidth = barCount * (barWidth + gap) - gap;
+        const startX = (w - totalWidth) / 2;
+        const centerY = h / 2;
+
+        hearWaveformCtx.clearRect(0, 0, w, h);
+        const t = Date.now() / 300;
+        for (let i = 0; i < barCount; i++) {
+            const height = 6 + Math.abs(Math.sin(t + i * 0.4)) * 36 + Math.random() * 8;
+            const x = startX + i * (barWidth + gap);
+            const y = centerY - height / 2;
+            hearWaveformCtx.fillStyle = `rgba(166, 92, 72, 0.75)`;
+            roundRect(hearWaveformCtx, x, y, barWidth, height, 3);
+            hearWaveformCtx.fill();
+        }
+    }
+    animateFallback();
+}
+
 function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     mediaRecorder.stop();
 }
 
-// ✅ 修复：playRecording - 增加 canplaythrough 等待
+// ✅ iOS 修复版：playRecording
+// iOS Safari 要求：必须先 load() 再等 canplaythrough，才能 play()。
+// 直接调用 play() 在 iOS 上会因音频未就绪而抛出 NotSupportedError。
 function playRecording() {
     if (!audioUrl || isPlaying) return;
 
+    // 如果 audioElement 已经可以播放（readyState >= HAVE_FUTURE_DATA），直接播
+    if (audioElement && audioElement.readyState >= 3) {
+        audioElement.currentTime = 0;
+        audioElement.play().then(() => {
+            isPlaying = true;
+            if (hearStopBtn) hearStopBtn.classList.add('is-playing');
+        }).catch(err => {
+            if (err.name !== 'AbortError') {
+                showToast('播放失败，请重试');
+                console.warn('播放失败:', err);
+            }
+        });
+        return;
+    }
+
+    // 否则重新创建并 load()，等待 canplaythrough
     if (!audioElement) {
-        audioElement = new Audio(audioUrl);
+        audioElement = new Audio();
         audioElement.preload = 'auto';
         audioElement.onended = () => {
             isPlaying = false;
@@ -1904,34 +1982,29 @@ function playRecording() {
         };
     }
 
-    // 如果已经加载完成，直接播放；否则等待 loadeddata
-    const playPromise = audioElement.play();
-    if (playPromise !== undefined) {
-        playPromise.then(() => {
+    let played = false;
+
+    audioElement.oncanplaythrough = function onReady() {
+        if (played) return;
+        played = true;
+        audioElement.oncanplaythrough = null;
+        audioElement.play().then(() => {
             isPlaying = true;
             if (hearStopBtn) hearStopBtn.classList.add('is-playing');
-        }).catch((err) => {
-            // 如果是因为未加载，尝试重新加载后播放
-            if (err.name === 'NotSupportedError' || err.name === 'AbortError') {
-                audioElement.load();
-                audioElement.oncanplaythrough = () => {
-                    audioElement.play().then(() => {
-                        isPlaying = true;
-                        if (hearStopBtn) hearStopBtn.classList.add('is-playing');
-                    }).catch(() => {
-                        showToast('播放失败，请检查音频格式');
-                    });
-                };
-            } else {
+        }).catch(err => {
+            if (err.name !== 'AbortError') {
                 showToast('播放失败，请重试');
                 console.warn('播放失败:', err);
             }
         });
-    } else {
-        // 旧浏览器可能没有 Promise
-        isPlaying = true;
-        if (hearStopBtn) hearStopBtn.classList.add('is-playing');
-    }
+    };
+
+    audioElement.onerror = function() {
+        showToast('音频加载失败，请重新录制');
+    };
+
+    audioElement.src = audioUrl;
+    audioElement.load();
 }
 
 function stopPlayback() {
@@ -2012,56 +2085,58 @@ function drawWaveformFromAudio(url) {
 }
 
 function submitHearTask() {
-    if (!audioUrl) {
+    if (!audioUrl && !lastAudioBlob) {
         showToast('请先录制一段声音');
         return;
     }
 
-    // 将音频 Blob 转换为 base64 存储
-    fetch(audioUrl)
-        .then(res => res.blob())
-        .then(blob => {
-            const reader = new FileReader();
-            reader.onloadend = function() {
-                const base64Audio = reader.result;
+    // ✅ iOS 修复：直接用 lastAudioBlob（FileReader 读取），
+    // 避免 fetch(blob:url) 在 iOS Safari 上静默失败
+    const blob = lastAudioBlob;
+    if (!blob) {
+        showToast('请先录制一段声音');
+        return;
+    }
 
-                // 保存到探索笔记
-                const hearNote = {
-                    id: Date.now(),
-                    type: 'hear',
-                    title: '听·音 记录',
-                    duration: hearTimer ? hearTimer.textContent : '00:00',
-                    audio: base64Audio,
-                    date: '二零二六·腊月'
-                };
-                exploreNotes.push(hearNote);
-                saveExploreNotes();
+    const reader = new FileReader();
+    reader.onloadend = function() {
+        const base64Audio = reader.result;
 
-                // 注入任务标题和反馈语
-                if (currentHearTask) {
-                    const titleEl = document.getElementById('hearFeedbackTitle');
-                    const bubbleEl = document.getElementById('hearFeedbackBubbleText');
-                    if (titleEl) titleEl.textContent = currentHearTask.title;
-                    if (bubbleEl) bubbleEl.textContent = '"' + currentHearTask.feedback + '"';
-                }
+        const hearNote = {
+            id: Date.now(),
+            type: 'hear',
+            title: '听·音 记录',
+            duration: hearTimer ? hearTimer.textContent : '00:00',
+            audio: base64Audio,
+            date: '二零二六·腊月'
+        };
+        exploreNotes.push(hearNote);
+        saveExploreNotes();
 
-                showHearModal();
-            };
-            reader.readAsDataURL(blob);
-        })
-        .catch(err => {
-            console.error('音频转换失败:', err);
-            const hearNote = {
-                id: Date.now(),
-                type: 'hear',
-                title: '听·音 记录',
-                duration: hearTimer ? hearTimer.textContent : '00:00',
-                date: '二零二六·腊月'
-            };
-            exploreNotes.push(hearNote);
-            saveExploreNotes();
-            showHearModal();
-        });
+        // 注入任务标题和反馈语
+        if (currentHearTask) {
+            const titleEl = document.getElementById('hearFeedbackTitle');
+            const bubbleEl = document.getElementById('hearFeedbackBubbleText');
+            if (titleEl) titleEl.textContent = currentHearTask.title;
+            if (bubbleEl) bubbleEl.textContent = '"' + currentHearTask.feedback + '"';
+        }
+
+        showHearModal();
+    };
+    reader.onerror = function() {
+        console.error('音频读取失败，保存无音频版本');
+        const hearNote = {
+            id: Date.now(),
+            type: 'hear',
+            title: '听·音 记录',
+            duration: hearTimer ? hearTimer.textContent : '00:00',
+            date: '二零二六·腊月'
+        };
+        exploreNotes.push(hearNote);
+        saveExploreNotes();
+        showHearModal();
+    };
+    reader.readAsDataURL(blob);
 }
 
 function showHearModal() {
