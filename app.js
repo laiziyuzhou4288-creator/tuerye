@@ -1554,8 +1554,30 @@ function submitVisualTask() {
 }
 
 /* ========================================
-   听觉页面功能（修复版）
+   听觉页面功能（Android + iOS 全兼容版）
    ======================================== */
+
+// 强制设置 canvas 尺寸，不依赖 getBoundingClientRect（hidden 时返回0）
+function forceResizeCanvas(canvas, fallbackW, fallbackH) {
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const parent = canvas.parentElement;
+    let w = 0, h = 0;
+    if (parent) {
+        const rect = parent.getBoundingClientRect();
+        w = rect.width || parent.offsetWidth || parent.clientWidth;
+        h = rect.height || parent.offsetHeight || parent.clientHeight;
+    }
+    if (w <= 0) w = fallbackW || 300;
+    if (h <= 0) h = fallbackH || 120;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
 function initHearPage() {
     cleanupHearRecording();
     audioChunks = [];
@@ -1570,45 +1592,31 @@ function initHearPage() {
         audioElement = null;
     }
 
-    if (hearTimer) {
-        hearTimer.textContent = '00:00:00';
-    }
-    if (hearRecordBtn) {
-        hearRecordBtn.classList.remove('is-recording', 'is-playing');
-    }
-    if (hearSubmitBtn) {
-        hearSubmitBtn.disabled = true;
-    }
+    if (hearTimer) hearTimer.textContent = '00:00:00';
+    if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording', 'is-playing');
+    if (hearSubmitBtn) hearSubmitBtn.disabled = true;
     if (hearStopBtn) {
         hearStopBtn.style.opacity = '0.5';
         hearStopBtn.style.pointerEvents = 'none';
     }
 
-    // ✅ 安卓修复：页面切换动画结束后再 resize，确保 canvas 父元素尺寸已经确定
-    // 用两次 rAF + setTimeout 确保 layout 完成
-    function doResizeAndDraw() {
+    function doInit() {
+        const screenW = window.innerWidth || 375;
+        forceResizeCanvas(hearWaveformCanvas, screenW - 32, 140);
+        forceResizeCanvas(hearFeedbackWaveformCanvas, screenW - 60, 120);
         if (hearWaveformCanvas) {
-            resizeWaveformCanvas(hearWaveformCanvas);
             hearWaveformCtx = hearWaveformCanvas.getContext('2d');
-        }
-        if (hearFeedbackWaveformCanvas) {
-            resizeWaveformCanvas(hearFeedbackWaveformCanvas);
-            hearFeedbackWaveformCtx = hearFeedbackWaveformCanvas.getContext('2d');
-        }
-        if (hearWaveformCanvas && hearWaveformCtx) {
-            hearWaveformCtx.clearRect(0, 0, hearWaveformCanvas.width, hearWaveformCanvas.height);
             drawEmptyWaveform();
         }
-        if (hearFeedbackWaveformCanvas && hearFeedbackWaveformCtx) {
-            hearFeedbackWaveformCtx.clearRect(0, 0, hearFeedbackWaveformCanvas.width, hearFeedbackWaveformCanvas.height);
+        if (hearFeedbackWaveformCanvas) {
+            hearFeedbackWaveformCtx = hearFeedbackWaveformCanvas.getContext('2d');
             drawEmptyFeedbackWaveform();
         }
     }
 
-    // 立即执行一次（兜底）
-    doResizeAndDraw();
-    // 再延迟执行一次，等页面过渡动画结束后重新测量尺寸
-    setTimeout(doResizeAndDraw, 350);
+    doInit();
+    setTimeout(doInit, 100);
+    setTimeout(doInit, 450);
 }
 
 function drawEmptyWaveform() {
@@ -1673,14 +1681,48 @@ function drawWaveformFromData(dataArray) {
     for (let i = 0; i < barCount; i++) {
         const idx = i * step;
         const val = dataArray[idx] || 128;
-        // 时域数据：128 = 静音，偏离128 = 有声音
-        // 将偏离量映射为条形高度，放大系数调大让手机上也可见
         const deviation = Math.abs(val - 128) / 128.0;
         const height = Math.max(4, deviation * (h * 0.75));
         const x = startX + i * (barWidth + gap);
         const y = centerY - height / 2;
         const alpha = 0.45 + deviation * 0.55;
         hearWaveformCtx.fillStyle = `rgba(166, 92, 72, ${alpha})`;
+        roundRect(hearWaveformCtx, x, y, barWidth, height, 3);
+        hearWaveformCtx.fill();
+    }
+}
+
+// 时域波形绘制：专为 getByteTimeDomainData 设计，1024点高精度版本
+function drawWaveformFromTimeDomain(dataArray) {
+    if (!hearWaveformCanvas || !hearWaveformCtx) return;
+    const w = hearWaveformCanvas.width;
+    const h = hearWaveformCanvas.height;
+    if (w === 0 || h === 0) return;
+    const barCount = 40;
+    const barWidth = 5;
+    const gap = 6;
+    const totalWidth = barCount * (barWidth + gap) - gap;
+    const startX = (w - totalWidth) / 2;
+    const centerY = h / 2;
+
+    hearWaveformCtx.clearRect(0, 0, w, h);
+
+    const step = Math.max(1, Math.floor(dataArray.length / barCount));
+    for (let i = 0; i < barCount; i++) {
+        // 取一段采样的RMS（均方根），比单点更平滑
+        let sum = 0;
+        const segLen = Math.min(step, 8);
+        for (let j = 0; j < segLen; j++) {
+            const v = dataArray[i * step + j] || 128;
+            const d = (v - 128) / 128.0;
+            sum += d * d;
+        }
+        const rms = Math.sqrt(sum / segLen);
+        const height = Math.max(3, rms * h * 0.85);
+        const x = startX + i * (barWidth + gap);
+        const y = centerY - height / 2;
+        const alpha = 0.4 + rms * 0.6;
+        hearWaveformCtx.fillStyle = `rgba(166, 92, 72, ${Math.min(1, alpha)})`;
         roundRect(hearWaveformCtx, x, y, barWidth, height, 3);
         hearWaveformCtx.fill();
     }
@@ -1769,9 +1811,7 @@ function drawFeedbackWaveformFromAudio(url) {
     }
 }
 
-// ✅ iOS 修复版：startRecording
-// iOS Safari 要求 AudioContext 必须在用户手势的同步调用栈中创建，
-// 且必须先 resume() 完成后才能连接 MediaStream 节点。
+// ✅ Android + iOS 全兼容版：startRecording
 let _sharedAudioContext = null;
 
 function getOrCreateAudioContext() {
@@ -1784,158 +1824,159 @@ function getOrCreateAudioContext() {
 function startRecording() {
     if (isRecording) return;
 
-    // 1. 在用户手势同步栈中创建并 resume AudioContext
+    // AudioContext 必须在用户手势同步栈中创建（iOS 要求）
     const audioContext = getOrCreateAudioContext();
     const resumePromise = audioContext.state === 'suspended'
         ? audioContext.resume()
         : Promise.resolve();
 
-    // 2. resume 完成后再获取麦克风，确保 iOS 上 AudioContext 处于 running 状态
     resumePromise.then(() => {
-        return navigator.mediaDevices.getUserMedia({ audio: true });
+        return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }).then((stream) => {
-            // 选择最优 MIME 类型（iOS Safari 支持 audio/mp4，不支持 webm）
-            let mimeType = '';
-            if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                mimeType = 'audio/mp4';
-            } else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                mimeType = 'audio/webm;codecs=opus';
-            } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-                mimeType = 'audio/ogg;codecs=opus';
-            }
 
-            mediaRecorder = mimeType
-                ? new MediaRecorder(stream, { mimeType })
-                : new MediaRecorder(stream);
+        // MIME 类型：安卓优先 webm/opus，iOS 只支持 mp4
+        let mimeType = '';
+        const types = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/mp4',
+            'audio/ogg;codecs=opus'
+        ];
+        for (const t of types) {
+            if (MediaRecorder.isTypeSupported(t)) { mimeType = t; break; }
+        }
 
-            audioChunks = [];
-            isRecording = true;
-            isPlaying = false;
+        mediaRecorder = mimeType
+            ? new MediaRecorder(stream, { mimeType })
+            : new MediaRecorder(stream);
 
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data && e.data.size > 0) {
-                    audioChunks.push(e.data);
-                }
+        audioChunks = [];
+        isRecording = true;
+        isPlaying = false;
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            isRecording = false;
+            if (waveformAnimationId) { cancelAnimationFrame(waveformAnimationId); waveformAnimationId = null; }
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            stream.getTracks().forEach(t => t.stop());
+
+            const finalMime = mediaRecorder.mimeType || mimeType || 'audio/webm';
+            const blob = new Blob(audioChunks, { type: finalMime });
+            lastAudioBlob = blob;
+
+            if (audioUrl) URL.revokeObjectURL(audioUrl);
+            audioUrl = URL.createObjectURL(blob);
+
+            if (audioElement) { audioElement.pause(); audioElement.src = ''; }
+            audioElement = new Audio();
+            audioElement.preload = 'auto';
+            audioElement.onended = () => {
+                isPlaying = false;
+                if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
+                if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
             };
+            audioElement.src = audioUrl;
+            audioElement.load();
 
-            mediaRecorder.onstop = () => {
-                isRecording = false;
+            if (hearSubmitBtn) hearSubmitBtn.disabled = false;
+            if (hearStopBtn) { hearStopBtn.style.opacity = '1'; hearStopBtn.style.pointerEvents = 'auto'; }
+            if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording');
 
-                // 停止动画和计时器
-                if (waveformAnimationId) {
-                    cancelAnimationFrame(waveformAnimationId);
-                    waveformAnimationId = null;
-                }
-                if (timerInterval) {
-                    clearInterval(timerInterval);
-                    timerInterval = null;
-                }
+            // 录音完成后绘制静态波形快照
+            drawWaveformFromBlob(lastAudioBlob);
+        };
 
-                // 停止所有音轨
-                stream.getTracks().forEach(t => t.stop());
+        mediaRecorder.start(100);
+        startTime = Date.now() - elapsedTime;
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(updateTimer, 100);
 
-                const blob = new Blob(audioChunks, {
-                    type: mediaRecorder.mimeType || 'audio/mp4'
-                });
-                lastAudioBlob = blob;
+        if (hearRecordBtn) hearRecordBtn.classList.add('is-recording');
+        if (hearStopBtn) { hearStopBtn.style.opacity = '0.5'; hearStopBtn.style.pointerEvents = 'none'; }
+        if (hearSubmitBtn) hearSubmitBtn.disabled = true;
 
-                if (audioUrl) URL.revokeObjectURL(audioUrl);
-                audioUrl = URL.createObjectURL(blob);
-
-                // ✅ iOS 修复：创建新 Audio 元素，load() 后等 canplaythrough 再标记可播
-                if (audioElement) {
-                    audioElement.pause();
-                    audioElement.src = '';
-                }
-                audioElement = new Audio();
-                audioElement.preload = 'auto';
-                audioElement.onended = () => {
-                    isPlaying = false;
-                    if (hearRecordBtn) hearRecordBtn.classList.remove('is-playing');
-                    if (hearStopBtn) hearStopBtn.classList.remove('is-playing');
-                };
-                audioElement.onerror = () => {
-                    console.warn('音频元素加载出错');
-                };
-                audioElement.src = audioUrl;
-                audioElement.load();
-
-                if (hearSubmitBtn) hearSubmitBtn.disabled = false;
-                if (hearStopBtn) {
-                    hearStopBtn.style.opacity = '1';
-                    hearStopBtn.style.pointerEvents = 'auto';
-                }
-                if (hearRecordBtn) hearRecordBtn.classList.remove('is-recording');
-
-                // 绘制波形（使用 FileReader 读取 blob，iOS 兼容）
-                drawWaveformFromBlob(lastAudioBlob);
-            };
-
-            mediaRecorder.start(100);
-            startTime = Date.now() - elapsedTime;
-            if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(updateTimer, 100);
-
-            if (hearRecordBtn) hearRecordBtn.classList.add('is-recording');
-            if (hearStopBtn) {
-                hearStopBtn.style.opacity = '0.5';
-                hearStopBtn.style.pointerEvents = 'none';
-            }
-            if (hearSubmitBtn) hearSubmitBtn.disabled = true;
-
-            // ✅ iOS 修复：先确认 AudioContext 是 running 再连接节点
+        // 尝试建立实时波形分析
+        // 用 try/catch 兜底，任何一步失败都降级为动画波形
+        let analyserSetupOk = false;
+        try {
             if (audioContext.state === 'running') {
-                try {
-                    const source = audioContext.createMediaStreamSource(stream);
-                    const analyser = audioContext.createAnalyser();
-                    analyser.fftSize = 256;
-                    source.connect(analyser);
-                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                // fftSize 2048 采样点更多，安卓上灵敏度更高
+                analyser.fftSize = 2048;
+                analyser.smoothingTimeConstant = 0.4;
+                source.connect(analyser);
 
-                    function animateWaveform() {
-                        if (!isRecording) {
-                            waveformAnimationId = null;
-                            return;
-                        }
-                        waveformAnimationId = requestAnimationFrame(animateWaveform);
-                        // ✅ 安卓修复：用时域数据（TimeDomain）代替频域数据
-                        // 时域数据静音时值=128，有声音时偏离128，振幅更直观可见
-                        analyser.getByteTimeDomainData(dataArray);
-                        drawWaveformFromData(dataArray);
+                const bufLen = analyser.frequencyBinCount; // 1024
+                const dataArray = new Uint8Array(bufLen);
+
+                // 检测安卓上 analyser 是否真正有数据（等100ms后采样）
+                let checkCount = 0;
+                function checkAndAnimate() {
+                    if (!isRecording) { waveformAnimationId = null; return; }
+                    waveformAnimationId = requestAnimationFrame(checkAndAnimate);
+                    analyser.getByteTimeDomainData(dataArray);
+
+                    // 计算信号偏离中心值128的最大幅度
+                    let maxDev = 0;
+                    for (let i = 0; i < bufLen; i++) {
+                        const dev = Math.abs(dataArray[i] - 128);
+                        if (dev > maxDev) maxDev = dev;
                     }
-                    animateWaveform();
-                } catch (e) {
-                    console.warn('波形分析器初始化失败（iOS）:', e);
-                    // 降级：用动画假波形占位
-                    startFallbackWaveformAnimation();
-                }
-            } else {
-                // AudioContext 未能激活时的降级动画
-                startFallbackWaveformAnimation();
-            }
 
-            mediaRecorder._audioContext = audioContext;
-        })
-        .catch((err) => {
-            showToast('无法访问麦克风，请检查权限设置');
-            console.error('麦克风访问被拒绝:', err);
-        });
+                    checkCount++;
+                    // 前20帧如果信号一直为0，说明 analyser 没数据，切换到降级动画
+                    if (checkCount < 20 && maxDev === 0) {
+                        return; // 继续等
+                    }
+                    if (checkCount >= 20 && maxDev === 0) {
+                        // analyser 无数据，启动降级动画
+                        cancelAnimationFrame(waveformAnimationId);
+                        waveformAnimationId = null;
+                        startFallbackWaveformAnimation();
+                        return;
+                    }
+
+                    // 有真实数据，正常绘制
+                    drawWaveformFromTimeDomain(dataArray);
+                }
+                checkAndAnimate();
+                analyserSetupOk = true;
+            }
+        } catch (e) {
+            console.warn('Analyser 初始化失败:', e);
+        }
+
+        if (!analyserSetupOk) {
+            startFallbackWaveformAnimation();
+        }
+
+        mediaRecorder._audioContext = audioContext;
+    }).catch((err) => {
+        showToast('无法访问麦克风，请检查权限设置');
+        console.error('录音启动失败:', err.name, err.message);
+    });
 }
 
-// ✅ 新增：iOS 降级波形动画（AudioContext 不可用时显示模拟声波）
+// 降级波形动画（analyser 无数据时的模拟声波）
 function startFallbackWaveformAnimation() {
     if (waveformAnimationId) cancelAnimationFrame(waveformAnimationId);
 
     function animateFallback() {
-        if (!isRecording) {
-            waveformAnimationId = null;
-            return;
-        }
+        if (!isRecording) { waveformAnimationId = null; return; }
         waveformAnimationId = requestAnimationFrame(animateFallback);
         if (!hearWaveformCanvas || !hearWaveformCtx) return;
 
-        const w = hearWaveformCanvas.width;
-        const h = hearWaveformCanvas.height;
+        // 用 CSS 逻辑尺寸绘制，不用 canvas.width（已乘 dpr）
+        const dpr = window.devicePixelRatio || 1;
+        const w = hearWaveformCanvas.width / dpr;
+        const h = hearWaveformCanvas.height / dpr;
+        if (w === 0 || h === 0) return;
+
         const barCount = 32;
         const barWidth = 6;
         const gap = 8;
@@ -1944,13 +1985,13 @@ function startFallbackWaveformAnimation() {
         const centerY = h / 2;
 
         hearWaveformCtx.clearRect(0, 0, w, h);
-        const t = Date.now() / 300;
+        const t = Date.now() / 280;
         for (let i = 0; i < barCount; i++) {
-            const height = 6 + Math.abs(Math.sin(t + i * 0.4)) * 36 + Math.random() * 8;
+            const ht = 5 + Math.abs(Math.sin(t + i * 0.45)) * (h * 0.55) + Math.random() * 6;
             const x = startX + i * (barWidth + gap);
-            const y = centerY - height / 2;
-            hearWaveformCtx.fillStyle = `rgba(166, 92, 72, 0.75)`;
-            roundRect(hearWaveformCtx, x, y, barWidth, height, 3);
+            const y = centerY - ht / 2;
+            hearWaveformCtx.fillStyle = 'rgba(166, 92, 72, 0.72)';
+            roundRect(hearWaveformCtx, x, y, barWidth, ht, 3);
             hearWaveformCtx.fill();
         }
     }
@@ -3212,22 +3253,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function resizeWaveformCanvas(canvas) {
-    if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent) return;
-    const dpr = window.devicePixelRatio || 1;
-    // getBoundingClientRect 在 display:none 时返回0，用 offsetWidth/offsetHeight 兜底
-    let w = parent.getBoundingClientRect().width || parent.offsetWidth;
-    let h = parent.getBoundingClientRect().height || parent.offsetHeight;
-    // 最终兜底：如果父元素尺寸还是0（页面隐藏中），用 canvas 的 CSS 尺寸或合理默认值
-    if (w <= 0) w = parseInt(canvas.style.width) || 300;
-    if (h <= 0) h = parseInt(canvas.style.height) || 120;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 统一走 forceResizeCanvas，保证 hidden 时也能拿到合理尺寸
+    const screenW = window.innerWidth || 375;
+    forceResizeCanvas(canvas, screenW - 32, 140);
 }
 
 /* ========================================
